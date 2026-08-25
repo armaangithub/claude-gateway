@@ -1,0 +1,23 @@
+services:
+  gateway:
+    build: .
+    image: claude-gateway:1.0.0
+    container_name: claude-gateway
+    ports:
+      # Bind to loopback on the host even though the container listens on 0.0.0.0.
+      - "127.0.0.1:8080:8080"
+    environment:
+      API_KEY: "${API_KEY:-changeme}"
+      CLAUDE_BACKEND: "${CLAUDE_BACKEND:-auto}"
+      DEFAULT_MODEL: "${DEFAULT_MODEL:-}"
+      DEFAULT_PERMISSION_MODE: "${DEFAULT_PERMISSION_MODE:-bypassPermissions}"
+      RATE_LIMIT_PER_MIN: "${RATE_LIMIT_PER_MIN:-120}"
+      LOG_JSON: "1"
+      # Required for auth inside the container (subscription auth is host-only):
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+    volumes:
+      - gateway-data:/data
+    restart: unless-stopped
+
+volumes:
+  gateway-data:

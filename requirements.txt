@@ -1,0 +1,17 @@
+# Core runtime
+claude-agent-sdk>=0.2.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+aiosqlite>=0.20
+httpx>=0.27
+
+# Optional observability (OpenTelemetry). Safe to omit — the gateway degrades
+# to its built-in metrics registry if these are missing.
+opentelemetry-api>=1.25
+opentelemetry-sdk>=1.25
+
+# Tests
+pytest>=8.0
+pytest-asyncio>=0.23

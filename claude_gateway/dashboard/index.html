@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Gateway · Dashboard</title>
+<style>
+  :root {
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3;
+    --muted:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149;
+    --yellow:#d29922; --purple:#bc8cff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:14px 22px;
+           border-bottom:1px solid var(--border); background:var(--panel); position:sticky; top:0; z-index:5;}
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); display:inline-block; }
+  header .dot.ok { background:var(--green); } header .dot.bad { background:var(--red); }
+  header .spacer { flex:1; }
+  input[type=password], input[type=text] {
+    background:var(--bg); border:1px solid var(--border); color:var(--fg);
+    border-radius:6px; padding:6px 10px; font-size:13px; width:220px; }
+  button { background:var(--accent); color:#01040a; border:0; border-radius:6px;
+           padding:6px 12px; font-weight:600; cursor:pointer; font-size:13px; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--border); }
+  main { padding:22px; max-width:1280px; margin:0 auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(165px,1fr)); gap:14px; margin-bottom:22px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .card .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .card .value { font-size:24px; font-weight:700; margin-top:4px; }
+  .card .sub { color:var(--muted); font-size:12px; margin-top:2px; }
+  section h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+               margin:24px 0 10px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel);
+          border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  th,td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.04em;}
+  tr:last-child td { border-bottom:0; }
+  td.mono,.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .pill { padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+  .QUEUED{background:#1f2937;color:var(--muted);} .RUNNING{background:#1f3a5f;color:var(--accent);}
+  .COMPLETED{background:#16321f;color:var(--green);} .FAILED{background:#3a1d1d;color:var(--red);}
+  .CANCELLED{background:#3a2f16;color:var(--yellow);}
+  .muted{color:var(--muted);} .right{text-align:right;}
+  .empty{ color:var(--muted); padding:18px; text-align:center; }
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="status-dot"></span>
+  <h1>Claude Gateway</h1>
+  <span class="mono muted" id="backend-info"></span>
+  <span class="spacer"></span>
+  <input type="password" id="apikey" placeholder="API key" />
+  <button onclick="saveKey()">Save</button>
+  <button class="ghost" onclick="refresh()">↻ Refresh</button>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+  <section>
+    <h2>Jobs</h2>
+    <table id="jobs"><thead><tr>
+      <th>Job</th><th>Kind</th><th>Status</th><th>Tokens</th><th>Cost</th>
+      <th>Duration</th><th>Prompt</th></tr></thead>
+      <tbody><tr><td colspan="7" class="empty">Enter an API key to load data.</td></tr></tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Sessions</h2>
+    <table id="sessions"><thead><tr>
+      <th>Session</th><th>Kind</th><th>Msgs</th><th>Cost</th><th>Warm</th><th>Last activity</th></tr></thead>
+      <tbody><tr><td colspan="6" class="empty">—</td></tr></tbody>
+    </table>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let KEY = localStorage.getItem("gw_key") || "";
+$("apikey").value = KEY;
+function saveKey(){ KEY = $("apikey").value.trim(); localStorage.setItem("gw_key", KEY); refresh(); }
+function hdr(){ return KEY ? { "Authorization": "Bearer " + KEY } : {}; }
+async function api(path){
+  const r = await fetch(path, { headers: hdr() });
+  if(!r.ok) throw new Error(path + " -> " + r.status);
+  return r.json();
+}
+function fmtCost(c){ return c==null ? "–" : "$" + Number(c).toFixed(4); }
+function fmtDur(ms){ return ms==null ? "–" : (ms<1000 ? ms+"ms" : (ms/1000).toFixed(1)+"s"); }
+function ago(ts){ if(!ts) return "–"; const s=(Date.now()/1000)-ts;
+  if(s<60) return Math.round(s)+"s ago"; if(s<3600) return Math.round(s/60)+"m ago";
+  return Math.round(s/3600)+"h ago"; }
+function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function trunc(s,n){ s=s||""; return s.length>n ? s.slice(0,n)+"…" : s; }
+
+async function refresh(){
+  try {
+    const h = await api("/v1/health");
+    $("status-dot").className = "dot " + (h.backend_available ? "ok":"bad");
+    $("backend-info").textContent = `${h.backend} · sdk ${h.sdk_version||h.cli_version||"?"} · up ${Math.round(h.uptime_s)}s`;
+    const m = await api("/v1/metrics");
+    const u = m.usage_totals || {};
+    const c = m.counters || {};
+    const lat = (m.histograms && Object.values(m.histograms)[0]) || {};
+    const cards = [
+      ["Backend", h.backend, h.backend_available?"available":"degraded"],
+      ["Running jobs", h.running_jobs, "active now"],
+      ["Warm sessions", h.warm_sessions, h.active_sessions + " total"],
+      ["Total tokens", (u.total_tokens||0).toLocaleString(), ""],
+      ["Total cost", fmtCost(u.total_cost_usd), (u.records||0)+" calls"],
+      ["Requests", sumByPrefix(c,"requests_total"), sumByPrefix(c,"errors_total")+" errors"],
+      ["Avg latency", (lat.avg_ms||0)+"ms", "max "+(lat.max_ms||0)+"ms"],
+    ];
+    $("cards").innerHTML = cards.map(([l,v,s])=>
+      `<div class="card"><div class="label">${l}</div><div class="value">${v}</div><div class="sub">${s}</div></div>`).join("");
+
+    const jobs = await api("/v1/jobs?limit=40");
+    $("jobs").querySelector("tbody").innerHTML = jobs.length ? jobs.map(j=>`
+      <tr><td class="mono">${j.job_id.slice(0,8)}</td><td>${j.kind}</td>
+      <td><span class="pill ${j.status}">${j.status}</span></td>
+      <td class="right mono">${(j.usage.total_tokens||0).toLocaleString()}</td>
+      <td class="right mono">${fmtCost(j.cost_usd)}</td>
+      <td class="right mono">${fmtDur(j.duration_ms)}</td>
+      <td class="muted">${esc(trunc(j.prompt,60))}</td></tr>`).join("")
+      : `<tr><td colspan="7" class="empty">No jobs yet.</td></tr>`;
+
+    const sess = await api("/v1/sessions?limit=40");
+    $("sessions").querySelector("tbody").innerHTML = sess.length ? sess.map(s=>`
+      <tr><td class="mono">${s.session_id.slice(0,8)}</td><td>${s.kind}</td>
+      <td class="right mono">${s.message_count}</td>
+      <td class="right mono">${fmtCost(s.total_cost_usd)}</td>
+      <td>${s.warm?'<span class="pill RUNNING">warm</span>':'<span class="muted">cold</span>'}</td>
+      <td class="muted">${ago(s.last_activity)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No sessions yet.</td></tr>`;
+  } catch(e){
+    $("status-dot").className = "dot bad";
+    $("backend-info").textContent = "error: " + e.message;
+  }
+}
+function sumByPrefix(obj,prefix){ let t=0; for(const k in obj){ if(k.startsWith(prefix)) t+=obj[k]; } return t; }
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
